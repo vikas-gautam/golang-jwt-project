@@ -44,6 +44,9 @@ func Signup() gin.HandlerFunc {
 			return
 		}
 
+		password := HashPassword(*user.Password)
+		user.Password = &password
+
 		count, err = userCollection.CountDocuments(ctx, bson.M{"phone": user.Phone})
 		defer cancel()
 
@@ -98,10 +101,32 @@ func Login() gin.HandlerFunc {
 		}
 		passwordIsValid, msg := VerifyPassword(*user.Password, *&foundUser.Password)
 		defer cancel()
+		if passwordIsValid != true {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+		}
+		if foundUser.Email == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
+		}
+		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, *&foundUser.User_id)
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+
+		err := userCollection.FindOne(ctx, bson.M{"user_id": foundUser.Email}).Decode(&foundUser)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		c.JSON(http.StatusOK, foundUser)
+
 	}
 }
 
-func HashPassword() {}
+func HashPassword(password string) string {
+	generatedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return string(generatedPassword)
+}
 
 func VerifyPassword(userPassword string, providedPassword string) (bool, string) {
 	err := bcrypt.CompareHashAndPassword([]byte(providedPassword), []byte(userPassword))
