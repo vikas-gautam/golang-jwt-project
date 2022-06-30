@@ -66,7 +66,7 @@ func Signup() gin.HandlerFunc {
 		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.ID = primitive.NewObjectID()
 		user.User_id = user.ID.Hex()
-		token, RefreshToken, _ := helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type)
+		token, RefreshToken, _ := helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type, user.User_id)
 
 		user.Token = &token
 		user.Refresh_token = &RefreshToken
@@ -94,24 +94,27 @@ func Login() gin.HandlerFunc {
 			return
 		}
 
-		userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
+		err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
 		defer cancel()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "email or password is not correct"})
 			return
 		}
-		passwordIsValid, msg := VerifyPassword(*user.Password, *&foundUser.Password)
+
+		passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
 		defer cancel()
 		if passwordIsValid != true {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 		}
+
 		if foundUser.Email == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
 		}
+
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, *&foundUser.User_id)
 		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
 
-		err := userCollection.FindOne(ctx, bson.M{"user_id": foundUser.Email}).Decode(&foundUser)
+		err = userCollection.FindOne(ctx, bson.M{"user_id": foundUser.Email}).Decode(&foundUser)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
@@ -135,27 +138,27 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 	mesg := ""
 
 	if err != nil {
-		mesg := fmt.Sprint("password or email is incorrect")
+		mesg = fmt.Sprint("password or email is incorrect")
 		check = false
 	}
 	return check, mesg
 }
 
-func GetUsers() gin.HandlerFunc{
-	return func(c *gin.Context){
-		helper.CheckUserType(c, "ADMIN"); err != nil {
+func GetUsers() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 
 		recordPerPage, err := strconv.Atoi(c.Query("recordPerPage"))
-		if err := nil || recordPerPage <1{
+		if err == nil || recordPerPage < 1 {
 			recordPerPage = 10
 		}
 
 		page, err1 := strconv.Atoi(c.Query("page"))
-		if err1 != nil || page <1{
+		if err1 != nil || page < 1 {
 			page = 1
 		}
 
@@ -165,36 +168,34 @@ func GetUsers() gin.HandlerFunc{
 		matchStage := bson.D{{"$match", bson.D{{}}}}
 
 		groupStage := bson.D{{"$group", bson.D{
-			{"_id", bson.D{{"_id", "null"}}}, 
-			{"total_count", bson.D{{"$sum", 1}}}, 
-			{"data", bson.D{{"$push", "$$ROOT"}}}
-		 }}}
+			{"_id", bson.D{{"_id", "null"}}},
+			{"total_count", bson.D{{"$sum", 1}}},
+			{"data", bson.D{{"$push", "$$ROOT"}}},
+		}}}
 
 		//u could control which data can go to users
-	    projectStage := bson.D{
+		projectStage := bson.D{
 			{"project", bson.D{
 				{"_id", 0},
 				{"total_count", 1},
 				{"user_items", bson.D{{"$slice", []interface{}{"data", startIndex, recordPerPage}}}},
-			}}
+			}}}
+
+		result, err := userCollection.Aggregate(ctx, mongo.Pipeline{
+			matchStage, groupStage, projectStage,
+		})
+
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing user items"})
 		}
 
-result,err := userCollection.Aggregate(ctx, mongo.Pipeline{
-	matchStage, groupStage, projectStage
-})
-
-defer cancel()
-if err != nil{
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing user items"})
-}
-
-var allUsers []bson.M
-if err = result.All(ctx, &allUsers); err != nil{
-	log.Fatal(err)
-}
-c.JSON(http.StatusOK, allUsers[0])
+		var allUsers []bson.M
+		if err = result.All(ctx, &allUsers); err != nil {
+			log.Fatal(err)
+		}
+		c.JSON(http.StatusOK, allUsers[0])
 	}
-
 
 }
 
