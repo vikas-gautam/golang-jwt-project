@@ -146,6 +146,7 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 
 func GetUsers() gin.HandlerFunc {
 	return func(c *gin.Context) {
+
 		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -170,8 +171,7 @@ func GetUsers() gin.HandlerFunc {
 		groupStage := bson.D{{"$group", bson.D{
 			{"_id", bson.D{{"_id", "null"}}},
 			{"total_count", bson.D{{"$sum", 1}}},
-			{"data", bson.D{{"$push", "$$ROOT"}}},
-		}}}
+			{"data", bson.D{{"$push", "$$ROOT"}}}}}}
 
 		//u could control which data can go to users
 		projectStage := bson.D{
@@ -196,7 +196,6 @@ func GetUsers() gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, allUsers[0])
 	}
-
 }
 
 func GetUser() gin.HandlerFunc {
