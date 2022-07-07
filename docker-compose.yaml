@@ -7,7 +7,7 @@ services:
                - PUID=1000
                - PGID=1000  
           volumes:
-               - ./database:/data/db
+               - ./mongodb:/data/db
           ports:
                - 27017:27017
           restart: unless-stopped
